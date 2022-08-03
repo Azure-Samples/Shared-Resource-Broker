@@ -2,15 +2,32 @@
 page_type: sample
 languages:
 - csharp
-- fsharp
+- bash
+- azurecli
+- bicep
+- azurecli
+
 products:
 - azure
+- azure-active-directory
+- azure-ad-graph-api
+- azure-app-service
+- azure-app-service-web
+- azure-key-vault
+- azure-managed-applications
+- azure-marketplace
+- aspnet-core
+- dotnet-core
+- microsoft-graph-azure-ad-api
+- microsoft-graph-groups-api
+- microsoft-graph-applications-api
+
 
 name: Shared Resource Broker
 description: "This sample shows how Azure marketplace deployments can connect to publisher services, thereby leveraging shared services for marketplace applications. During marketplace installation (ARM deployment), a service principal is created on the publisher tenant. The service principal is added to an AAD group, which has been granted permissions (RBAC) to specific Azure services. Once service principal is created, the marketplace deployment process (ARM) stores the credentials in a key vault in the managed resource group. The managed application can then leverage credentials stored in the key vault to connect to the shared resources on the publisher tenant."
 ---
 
-# Introduction
+# Shared Resource Broker
 
 Having an Azure marketplace solution, a publisher might want to share Azure resources from the publisher tenant with the individual customer deployments. Shared resources reduce cost and optimize operations.
 
@@ -25,9 +42,26 @@ Scenarios where managed applications benefit from calling (shared) services on t
 Key to the the setup experience needs to be seamless, for the customer. 
 Having this requirement means, that setting up the managed application needs to automatically register with the publisher backend to setup a trust relationship automatically with the publisher.  
 
+## Features and capabilities shown in this sample
+
+There's two main parts to the sample, a publisher backend and sample marketplace application. 
+
+* Publisher backend handling (publisher side of the house):
+  * Creation of service principals, when a new marketplace deployment is initiated 
+  * Leverages managed identity to call Microsoft Graph
+  * AAD Group containing the service principals. Permissions to Azure services can be granted to the group 
+  * Handling lifecycle events from marketplace deployments (deploying, deleting etc.)
+  * Creating a Key Vault which is only accessed by marketplace ARM deployment 
+* Sample app for marketplace offer publication (customer side of the house):
+  * Marketplace deployment (ARM) calls publisher key vault for secret exchange
+  * Client credentials received during ARM deployment is stored in Key Vault within the managed application
+  * Registering the [tracking identifier](https://docs.microsoft.com/en-us/azure/marketplace/azure-partner-customer-usage-attribution) used for application usage tracking
+
+### Installation
+
 For setup and installation, check the [scripts and guide](docs/Installation.md).
 
-### Main application flow, a managed application that registers with the publisher
+## Main application flow, a managed application that registers with the publisher
 
 The setup flow is the entire orchestration, the central part of the sample. An Azure Marketplace deployment calls the publisher to setup the trust relationship. A service principle is created and stored in the key vault of the managed application deployment.
 
@@ -94,7 +128,7 @@ Marketplace ->> Managed App: Delete managed application
 
 Above deprovision is the same for a managed application deployment. 
 
-##### Subscribing to lifecycle event
+####  Subscribing to lifecycle event
 
 When specifying the 'Notification Endpoint URL on either the [Service catalog managed application definition](https://docs.microsoft.com/en-us/azure/azure-resource-manager/managed-applications/publish-notifications#add-service-catalog-application-definition-notifications) or in the [Azure Marketplace package details](https://docs.microsoft.com/en-us/azure/azure-resource-manager/managed-applications/publish-notifications#add-azure-marketplace-managed-application-notifications), the URL used in the sample is ```https://endpoint.com?sig=xxxx```, the sample payloads specifies that subscriber needs expose endpoint accepting `POST /resource?sig=xxx`.  
 
