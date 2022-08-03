@@ -60,7 +60,7 @@ jobs:
         with:
           azcliversion: 2.37.0
           inlineScript: |
-            blob_name="henrikwh/SharedResourceBroker/Backend/Publish/Backend-${{ env.DOTNET_CONFIGURATION }}-${GITHUB_SHA}.zip"
+            blob_name="Azure-Samples/Shared-Resource-Broker/Backend/Publish/Backend-${{ env.DOTNET_CONFIGURATION }}-${GITHUB_SHA}.zip"
             blob_url="https://${account_name}.blob.core.windows.net/${container_name}/${blob_name}"
             echo "Trying to upload to ${blob_url}"
             az storage blob upload --auth-mode login --account-name "${account_name}" --container-name "${container_name}" --file "${filename}" --name "${blob_name}"
