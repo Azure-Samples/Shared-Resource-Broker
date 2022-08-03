@@ -1,0 +1,37 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/0.1.2-preview/CreateUIDefinition.MultiVm.json#",
+  "handler": "Microsoft.Azure.CreateUIDef",
+  "version": "0.1.2-preview",
+  "parameters": {
+    "basics": [
+      {}
+    ], 
+    "steps": [
+      {
+        "name": "ApplicationConfig",
+        "label": "Application config",
+        "subLabel": {
+          "preValidation": "Configure your application settings",
+          "postValidation": "Done"
+        },
+        "bladeTitle": "Application settings",
+        "elements": [
+          {
+            "name": "Applicationsettings",
+            "type": "Microsoft.Common.TextBox",
+            "label": "Name of the application instance to be created",
+            "toolTip": "Name of the application instance to be created",
+            "visible": true,
+            "constraints": {
+              "required": true
+            }
+          }
+        
+        ]
+      }
+    ],
+    "outputs": {
+      "nameprefix": "[steps('ApplicationConfig').Applicationsettings]"
+    }
+  }
+}
