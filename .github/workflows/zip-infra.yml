@@ -1,0 +1,67 @@
+# This is a basic workflow that is manually triggered
+
+name: ZIP the infrastructure
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - src/Backend/**
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  account_name: 'isvreleases'
+  container_name: 'backendrelease'
+  tenant_id: '5f9e748d-300b-48f1-85f5-3aa96d6260cb'
+  app_id: '9b7fb38a-c83f-46da-9e3f-6209a7b209d7'
+  filename: 'backend.zip'
+  DOTNET_VERSION: '6.0.301' # The .NET SDK version to use
+  AZURE_WEBAPP_PACKAGE_PATH: './src'
+  DOTNET_RUN_IDENTIFIER: 'win-x86' # https://docs.microsoft.com/en-us/dotnet/core/rid-catalog#windows-rids
+  DOTNET_CONFIGURATION: 'Debug'
+jobs:
+  build:
+    name: ZIP and upload the Backend
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v3
+      - name: Setup .NET Core
+        uses: actions/setup-dotnet@v1
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+      - name: Install dependencies
+        working-directory: ${{ env.AZURE_WEBAPP_PACKAGE_PATH }}
+        run: |
+          dotnet restore
+      - name: Build
+        working-directory: ${{ env.AZURE_WEBAPP_PACKAGE_PATH }}
+        run: |
+          dotnet build --configuration ${{ env.DOTNET_CONFIGURATION }} --no-restore
+          dotnet publish --configuration ${{ env.DOTNET_CONFIGURATION }} -r ${{ env.DOTNET_RUN_IDENTIFIER }}
+          cd ..
+      - name: 'Create ZIP'
+        working-directory: ${{ env.AZURE_WEBAPP_PACKAGE_PATH }}/Backend/bin/${{ env.DOTNET_CONFIGURATION }}/net6.0/${{ env.DOTNET_RUN_IDENTIFIER }}/publish
+        run: |
+          zip -r "../../../../../../../${filename}" .
+      - name: 'Login via azure/login@v1'
+        uses: azure/login@v1
+        with:
+          tenant-id: ${{ env.tenant_id }}
+          client-id: ${{ env.app_id }}
+          allow-no-subscriptions: true
+          environment: azurecloud
+      - name: 'Upload to storage'        
+        uses: azure/CLI@v1
+        with:
+          azcliversion: 2.37.0
+          inlineScript: |
+            blob_name="henrikwh/SharedResourceBroker/Backend/Publish/Backend-${{ env.DOTNET_CONFIGURATION }}-${GITHUB_SHA}.zip"
+            blob_url="https://${account_name}.blob.core.windows.net/${container_name}/${blob_name}"
+            echo "Trying to upload to ${blob_url}"
+            az storage blob upload --auth-mode login --account-name "${account_name}" --container-name "${container_name}" --file "${filename}" --name "${blob_name}"
+            echo "Uploaded to ${blob_url}"
