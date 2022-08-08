@@ -67,7 +67,6 @@ The setup flow is the entire orchestration, the central part of the sample. An A
 
 ![](./docs/img/main.png)
 
-
 These a few central pieces to registering with the publisher:
 
 * (3,4) ARM deployments can [fetch secrets from a Key Vault](https://docs.microsoft.com/en-us/azure/azure-resource-manager/templates/key-vault-parameter), provided the subscription id, resource group and key vault name. Key Vault needs to be [enabled for ARM deployments](https://docs.microsoft.com/en-us/azure/azure-resource-manager/managed-applications/key-vault-access).
@@ -91,6 +90,7 @@ Lifecycle events are emitted for managed applications and marketplace deployed a
 
 For this sample, the most interesting event are when an application is being deprovisioned. 
 When a marketplace or managed application is deprovisioned/deleted, the publisher might want to cleanup. In this case, the service principal is deleted. 
+
 ![](./docs/img/deprovision.png)
 
 Above deprovision is the same for a managed application deployment. 
