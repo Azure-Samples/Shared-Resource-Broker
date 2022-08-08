@@ -65,21 +65,8 @@ For setup and installation, check the [scripts and guide](docs/Installation.md).
 
 The setup flow is the entire orchestration, the central part of the sample. An Azure Marketplace deployment calls the publisher to setup the trust relationship. A service principle is created and stored in the key vault of the managed application deployment.
 
-```mermaid
-sequenceDiagram 
-autonumber
-Marketplace->>ARM: Customer installs
-ARM->>Managed App: Deploy to customer tenant
-ARM->>Publisher KeyVault :Get 'bootstrap' secret
-ARM->>Publisher API : Using the bootstrap secret, register subscription, <br/>resource group, and request the service principal for<br/> the respective managed app instance.
-Publisher API->>Publisher AAD : Create service principal for the<br/> respective deployment, and add SP to the <br/>a security group.
-Publisher API->>ARM : Return service principal credential
-ARM->>Managed App KeyVault: Store Service principal credential in Managed app's Key vault instance
+![](./docs/img/main.png)
 
-
-Managed App ->> Managed App KeyVault: Get service principal credential from key vault
-Managed App ->> Azure Resource: Managed application uses the allocated service principal to connect to publisher tenant
-```
 
 These a few central pieces to registering with the publisher:
 
@@ -91,16 +78,7 @@ These a few central pieces to registering with the publisher:
 ### Usage
 
 When a managed application or Azure marketplace app has registered with the publisher and received the service principal credentials, the managed app can pull the credentials from the key vault in the managed resource group.  
-
-```mermaid
-sequenceDiagram 
-autonumber
-
-Managed App (Customer) ->> Managed App KeyVault (Customer): Get service principal credential from key vault (using managed identity)
-Managed App (Customer) ->> Publisher AAD : Use service principal to get access token
-Managed App (Customer) ->> Azure Resource (Publisher): Connect to service on publisher side, using token
-
-```
+![](./docs/img/usage.png)
 
 * (1) Fetching the client credentials [from Key Vault using the managed identity]([Azure Key Vault configuration provider in ASP.NET Core | Microsoft Docs](https://docs.microsoft.com/en-us/aspnet/core/security/key-vault-configuration?view=aspnetcore-6.0)).
 * (2,3) is standard [OAuth client credentials flow](https://docs.microsoft.com/en-us/azure/active-directory/develop/v2-oauth2-client-creds-grant-flow).
@@ -113,18 +91,7 @@ Lifecycle events are emitted for managed applications and marketplace deployed a
 
 For this sample, the most interesting event are when an application is being deprovisioned. 
 When a marketplace or managed application is deprovisioned/deleted, the publisher might want to cleanup. In this case, the service principal is deleted. 
-
-```mermaid
-sequenceDiagram 
-autonumber
-
-Marketplace ->> Publisher API: Webhook call, managed application is being deleted
-
-Publisher API ->> Publisher AAD: Delete service principal 
-
-Marketplace ->> Managed App: Delete managed application
-
-```
+![](./docs/img/deprovision.png)
 
 Above deprovision is the same for a managed application deployment. 
 
