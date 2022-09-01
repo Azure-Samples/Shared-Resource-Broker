@@ -1,12 +1,14 @@
 ﻿namespace Backend.Services;
 
 using Azure.Identity;
+using Azure.Security.KeyVault.Secrets;
 using Backend.Models.Request;
 using Backend.Models.Response;
 using Backend.Models.Settings;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.Graph;
+using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -25,13 +27,18 @@ public class ApplicationService : IApplicationService
 {
     private readonly ILogger<ApplicationService> _logger;
     private readonly IOptions<ServicePrincipalCreatorSettings> _appSettings;
-
+    private readonly SecretClient _keyVaultSecretClient;
     public ApplicationService(ILogger<ApplicationService> logger, IOptions<ServicePrincipalCreatorSettings> settingsOptions)
     {
         _logger = logger;
         _appSettings = settingsOptions;
+        _keyVaultSecretClient = new SecretClient(
+            vaultUri: new($"https://{_appSettings.Value.KeyVaultName}.vault.azure.net/"),
+            credential: new DefaultAzureCredential(new DefaultAzureCredentialOptions { ManagedIdentityClientId = _appSettings.Value.AzureADManagedIdentityClientId }));
     }
 
+    private string GetApplicationName(SubscriptionRegistrationRequest req) =>
+        $"{_appSettings.Value.GeneratedServicePrincipalPrefix}-{req.SubscriptionID}-{req.ResourceGroupName}";
     private string GetApplicationName(ApplicationCreateRequest req) =>
         $"{_appSettings.Value.GeneratedServicePrincipalPrefix}-{req.SubscriptionID}-{req.ResourceGroupName}";
 
@@ -201,9 +208,20 @@ public class ApplicationService : IApplicationService
             TenantID: applicationCreatedResponse.TenantID);
     }
 
+    /// <summary>How long to keep secrets around. We expect the ARM template in the managed app to immediately fetch the secret, so one day might be a bit long.</summary>
+    private static readonly TimeSpan SecretExpirationPeriod = TimeSpan.FromDays(1);
+
     public async Task<CreateServicePrincipalInKeyVaultResponse> CreateServicePrincipalInKeyVault(SubscriptionRegistrationRequest o) 
-    {
+    {        
         var sp = await CreateServicePrincipal(o);
-        return new CreateServicePrincipalInKeyVaultResponse(ClientId: sp.ClientId, SecretURL: "", TenantID: sp.TenantID);
+        var name = GetApplicationName(o);
+        KeyVaultSecret secret = new(name: name, value: JsonConvert.SerializeObject(sp));
+        secret.Properties.ExpiresOn = DateTimeOffset.UtcNow.Add(SecretExpirationPeriod);
+        await _keyVaultSecretClient.SetSecretAsync(secret);
+                
+        return new CreateServicePrincipalInKeyVaultResponse(
+            ClientId: sp.ClientId, 
+            SecretURL: secret.Id.AbsoluteUri, 
+            TenantID: sp.TenantID);
     }
 }
