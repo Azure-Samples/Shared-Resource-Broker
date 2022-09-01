@@ -14,6 +14,8 @@ using System;
 using System.Linq;
 using System.Threading.Tasks;
 
+internal class UnauthorizedException : Exception { }
+
 //[Authorize]
 [ApiController]
 [Route("[controller]")]
@@ -36,6 +38,28 @@ public class ServicePrincipalController : ControllerBase
         _configuration = configuration;
     }
 
+    private async Task<SubscriptionRegistrationOkResponse> CreateServicePrincipal(SubscriptionRegistrationRequest o)
+    {
+        if (string.IsNullOrEmpty(o.Resourcegroup)) { throw new ArgumentNullException(paramName: nameof(o), message: $"Missing {nameof(SubscriptionRegistrationRequest)}.{nameof(SubscriptionRegistrationRequest.ResourceGroupName)}"); }
+        if (string.IsNullOrEmpty(o.Subscription)) { throw new ArgumentNullException(paramName: nameof(o), message: $"Missing {nameof(SubscriptionRegistrationRequest)}.{nameof(SubscriptionRegistrationRequest.Subscription)}"); }
+        
+        string? secretPassed = Request.Headers.Authorization.ToString();
+        if (string.IsNullOrEmpty(secretPassed)) secretPassed = o.Secret;
+        var keyVaultSecrect = _configuration["BootstrapSecret"];
+        if (string.IsNullOrEmpty(secretPassed) || secretPassed != keyVaultSecrect) { throw new UnauthorizedException();  }
+            
+
+        var applicationCreatedResponse = await _applicationService.CreateApplication(
+            new ApplicationCreateRequest(
+                SubscriptionID: Guid.Parse(o.Subscription.Split('/').Last()),
+                ResourceGroupName: o.Resourcegroup));
+
+        return new SubscriptionRegistrationOkResponse(
+            ClientId: applicationCreatedResponse.ClientId.ToString(),
+            ClientSecret: applicationCreatedResponse.ClientSecret,
+            TenantID: applicationCreatedResponse.TenantID);
+    }
+
     [SwaggerResponse(StatusCodes.Status200OK, "Service principal created", typeof(SubscriptionRegistrationOkResponse))]
     [SwaggerResponse(StatusCodes.Status409Conflict, "Service principal already exist", typeof(SubscriptionRegistrationFailedResponse))]
     [HttpPost]
@@ -44,34 +68,11 @@ public class ServicePrincipalController : ControllerBase
     {
         try
         {
-            if (string.IsNullOrEmpty(o.Resourcegroup))
-                return Ok(new SubscriptionRegistrationFailedResponse($"No {nameof(o.ResourceGroupName)} specified"));
-            if (string.IsNullOrEmpty(o.Subscription))
-                return Ok(new SubscriptionRegistrationFailedResponse($"No {nameof(o.SubscriptionID)} specified"));
-
-            string? secretPassed = Request.Headers.Authorization.ToString();
-            if (string.IsNullOrEmpty(secretPassed)) secretPassed = o.Secret;
-            var keyVaultSecrect = _configuration["BootstrapSecret"];
-            if (string.IsNullOrEmpty(secretPassed) || secretPassed != keyVaultSecrect)
-                return Unauthorized();
-           
-            var applicationCreatedResponse = await _applicationService.CreateApplication(
-                new ApplicationCreateRequest(
-                    SubscriptionID: Guid.Parse(o.Subscription.Split('/').Last()), 
-                    ResourceGroupName: o.Resourcegroup));
-
-            return Ok(new SubscriptionRegistrationOkResponse(
-                ClientId: applicationCreatedResponse.ClientId.ToString(), 
-                ClientSecret: applicationCreatedResponse.ClientSecret, 
-                TenantID: applicationCreatedResponse.TenantID));
+            return Ok(await CreateServicePrincipal(o));
         }
-        catch (ArgumentException e) when (e.Message.Contains("Service principal already exist"))
-        {
-            return Conflict(new SubscriptionRegistrationFailedResponse(Message: e.Message));
-        }
-        catch (Exception e)
-        {
-            return BadRequest(new SubscriptionRegistrationFailedResponse(Message: e.Message));
-        }
+        catch (ArgumentNullException e) { return BadRequest(new SubscriptionRegistrationFailedResponse(Message: e.Message)); }
+        catch (ArgumentException e) when (e.Message.Contains("Service principal already exist")) { return Conflict(new SubscriptionRegistrationFailedResponse(Message: e.Message)); }
+        catch (UnauthorizedException) { return Unauthorized(); }
+        catch (Exception e) { return BadRequest(new SubscriptionRegistrationFailedResponse(Message: e.Message)); }
     }
 }
