@@ -2,10 +2,8 @@
 using Azure.Identity;
 using Azure.Security.KeyVault.Secrets;
 using ManagedSolution.Models.Settings;
-using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.Extensions.Options;
-using Newtonsoft.Json;
 
 namespace ManagedSolution.Pages
 {
@@ -13,7 +11,8 @@ namespace ManagedSolution.Pages
     {
         private readonly ILogger<IndexModel> _logger;
         private readonly IOptions<AppSettings> _appsettings;
-        SecretClientOptions options = new SecretClientOptions()
+        
+        readonly SecretClientOptions options = new ()
         {
             Retry =
             {
@@ -23,6 +22,7 @@ namespace ManagedSolution.Pages
                 Mode = RetryMode.Exponential
              }
         };
+
         public string? Data { get; set; }
         
         public IndexModel(ILogger<IndexModel> logger, IOptions<AppSettings> appsettings)
@@ -30,28 +30,24 @@ namespace ManagedSolution.Pages
             _logger = logger;
             _appsettings = appsettings;
         }
+
         public Task OnPostPayloadAsync(CancellationToken ct, string data) => PushPayload(ct, data);
+
         private async Task PushPayload(CancellationToken ct, string payload)
         {
             var client = new SecretClient(new Uri(_appsettings.Value.KeyVaultUri), new DefaultAzureCredential(), options);
-            string secretValue;
-            try
-            {
-                KeyVaultSecret secret = client.GetSecret("clientCredentials");
-                 secretValue = secret.Value;
-            }
-            catch (Exception)
-            {
-                throw;
-            }           
+
+            KeyVaultSecret secret = client.GetSecret("clientCredentials");
+            string secretValue = secret.Value;
+
             if (string.IsNullOrEmpty(secretValue))
+            {
                 throw new Exception("Secret not found");
+            }
 
             await Task.FromResult("Ok");
         }
-        public void OnGet()
-        {
 
-        }
+        public void OnGet() { }
     }
 }
