@@ -2,9 +2,7 @@
 
 using Azure.Identity;
 using Azure.Security.KeyVault.Secrets;
-using Backend.Models.Request;
-using Backend.Models.Response;
-using Backend.Models.Settings;
+using Backend.Models;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.Graph;
@@ -17,10 +15,9 @@ using System.Threading.Tasks;
 
 public interface IApplicationService
 {
-    Task<ApplicationCreatedResponse> CreateApplication(Guid subscriptionID, string managedResourceGroupName);
-    Task DeleteApplication(string applicationId);
-    Task<SubscriptionRegistrationOkResponse> CreateServicePrincipal(SubscriptionRegistrationRequest o);
     Task<CreateServicePrincipalInKeyVaultResponse> CreateServicePrincipalInKeyVault(SubscriptionRegistrationRequest o);
+    Task<SubscriptionRegistrationOkResponse> CreateServicePrincipal(SubscriptionRegistrationRequest o);
+    Task DeleteApplication(string applicationId);
 }
 
 public class ApplicationService : IApplicationService
@@ -37,9 +34,7 @@ public class ApplicationService : IApplicationService
             credential: new DefaultAzureCredential(new DefaultAzureCredentialOptions { ManagedIdentityClientId = _appSettings.Value.AzureADManagedIdentityClientId }));
     }
 
-    private string GetApplicationName(SubscriptionRegistrationRequest req) =>
-        $"{_appSettings.Value.GeneratedServicePrincipalPrefix}-{req.SubscriptionID}-{req.ResourceGroupName}";
-    private string GetApplicationName(Guid subscriptionID, string managedResourceGroupName) =>
+    private string GetApplicationName(string subscriptionID, string managedResourceGroupName) =>
         $"{_appSettings.Value.GeneratedServicePrincipalPrefix}-{subscriptionID}-{managedResourceGroupName}";
 
     private string GetApplicationName(string resourceId)
@@ -47,7 +42,7 @@ public class ApplicationService : IApplicationService
         var parts = resourceId.TrimStart('/').Split('/');
 
         return GetApplicationName(
-            subscriptionID: Guid.Parse(parts[1]),
+            subscriptionID: parts[1],
             managedResourceGroupName: parts[3]);
     }
 
@@ -100,9 +95,12 @@ public class ApplicationService : IApplicationService
         }
     }
 
-    public async Task<ApplicationCreatedResponse> CreateApplication(Guid subscriptionID, string managedResourceGroupName)
+    public async Task<SubscriptionRegistrationOkResponse> CreateServicePrincipal(SubscriptionRegistrationRequest o)
     {
-        var key = GetApplicationName(subscriptionID, managedResourceGroupName);
+        if (string.IsNullOrEmpty(o.ManagedResourceGroupName)) { throw new ArgumentNullException(paramName: nameof(o), message: $"Missing {nameof(SubscriptionRegistrationRequest)}.{nameof(SubscriptionRegistrationRequest.ManagedResourceGroupName)}"); }
+        if (string.IsNullOrEmpty(o.SubscriptionID)) { throw new ArgumentNullException(paramName: nameof(o), message: $"Missing {nameof(SubscriptionRegistrationRequest)}.{nameof(SubscriptionRegistrationRequest.SubscriptionID)}"); }
+
+        var key = GetApplicationName(o.SubscriptionID, o.ManagedResourceGroupName);
         try
         {
             GraphServiceClient _graphServiceClient = GetGraphServiceClient();
@@ -179,8 +177,8 @@ public class ApplicationService : IApplicationService
             }
 
             _logger.LogDebug("Setup completed for app:" + key);
-            return new ApplicationCreatedResponse(DisplayName: key, ClientSecret: pwd.SecretText, ClientId: Guid.Parse(app.AppId), TenantID: app.PublisherDomain);
-
+            
+            return new SubscriptionRegistrationOkResponse(ClientSecret: pwd.SecretText, ClientID: app.AppId, TenantID: app.PublisherDomain);
         }
         catch (Exception e)
         {
@@ -189,34 +187,19 @@ public class ApplicationService : IApplicationService
         }
     }
 
-    public async Task<SubscriptionRegistrationOkResponse> CreateServicePrincipal(SubscriptionRegistrationRequest o)
-    {
-        if (string.IsNullOrEmpty(o.Resourcegroup)) { throw new ArgumentNullException(paramName: nameof(o), message: $"Missing {nameof(SubscriptionRegistrationRequest)}.{nameof(SubscriptionRegistrationRequest.ResourceGroupName)}"); }
-        if (string.IsNullOrEmpty(o.Subscription)) { throw new ArgumentNullException(paramName: nameof(o), message: $"Missing {nameof(SubscriptionRegistrationRequest)}.{nameof(SubscriptionRegistrationRequest.Subscription)}"); }
-
-        var applicationCreatedResponse = await CreateApplication(
-            subscriptionID: Guid.Parse(o.Subscription.Split('/').Last()),
-            managedResourceGroupName: o.Resourcegroup);
-
-        return new SubscriptionRegistrationOkResponse(
-            ClientId: applicationCreatedResponse.ClientId.ToString(),
-            ClientSecret: applicationCreatedResponse.ClientSecret,
-            TenantID: applicationCreatedResponse.TenantID);
-    }
-
     /// <summary>How long to keep secrets around. We expect the ARM template in the managed app to immediately fetch the secret, so one day might be a bit long.</summary>
     private static readonly TimeSpan SecretExpirationPeriod = TimeSpan.FromDays(1);
 
     public async Task<CreateServicePrincipalInKeyVaultResponse> CreateServicePrincipalInKeyVault(SubscriptionRegistrationRequest o) 
     {        
         var sp = await CreateServicePrincipal(o);
-        var name = GetApplicationName(o);
+        var name = GetApplicationName(subscriptionID: o.SubscriptionID, managedResourceGroupName: o.ManagedResourceGroupName);
         KeyVaultSecret secret = new(name: name, value: JsonConvert.SerializeObject(sp));
         secret.Properties.ExpiresOn = DateTimeOffset.UtcNow.Add(SecretExpirationPeriod);
         await _keyVaultSecretClient.SetSecretAsync(secret);
                 
         return new CreateServicePrincipalInKeyVaultResponse(
-            ClientId: sp.ClientId, 
+            ClientID: sp.ClientID, 
             SecretURL: secret.Id.AbsoluteUri, 
             TenantID: sp.TenantID);
     }

@@ -1,6 +1,6 @@
 using Azure.Identity;
 using Backend.Middelware.Monitor;
-using Backend.Models.Settings;
+using Backend.Models;
 using Backend.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Swashbuckle.AspNetCore.Filters;

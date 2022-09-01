@@ -1,8 +1,6 @@
 namespace Backend.Controllers;
 
-using Backend.Models.Request;
-using Backend.Models.Response;
-using Backend.Models.Settings;
+using Backend.Models;
 using Backend.Services;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -37,7 +35,7 @@ public class ServicePrincipalController : ControllerBase
     
     private bool IsAuthorized(SubscriptionRegistrationRequest o)
     {
-        string secretPassed = Request.Headers.Authorization.ToString() ?? o.Secret;
+        string secretPassed = Request.Headers.Authorization.ToString();
         return !string.IsNullOrEmpty(secretPassed) && secretPassed == _configuration["BootstrapSecret"];
     }
 
