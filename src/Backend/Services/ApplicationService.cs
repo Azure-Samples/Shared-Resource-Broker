@@ -17,7 +17,7 @@ using System.Threading.Tasks;
 
 public interface IApplicationService
 {
-    Task<ApplicationCreatedResponse> CreateApplication(ApplicationCreateRequest req);
+    Task<ApplicationCreatedResponse> CreateApplication(Guid subscriptionID, string managedResourceGroupName);
     Task DeleteApplication(string applicationId);
     Task<SubscriptionRegistrationOkResponse> CreateServicePrincipal(SubscriptionRegistrationRequest o);
     Task<CreateServicePrincipalInKeyVaultResponse> CreateServicePrincipalInKeyVault(SubscriptionRegistrationRequest o);
@@ -39,17 +39,16 @@ public class ApplicationService : IApplicationService
 
     private string GetApplicationName(SubscriptionRegistrationRequest req) =>
         $"{_appSettings.Value.GeneratedServicePrincipalPrefix}-{req.SubscriptionID}-{req.ResourceGroupName}";
-    private string GetApplicationName(ApplicationCreateRequest req) =>
-        $"{_appSettings.Value.GeneratedServicePrincipalPrefix}-{req.SubscriptionID}-{req.ResourceGroupName}";
+    private string GetApplicationName(Guid subscriptionID, string managedResourceGroupName) =>
+        $"{_appSettings.Value.GeneratedServicePrincipalPrefix}-{subscriptionID}-{managedResourceGroupName}";
 
     private string GetApplicationName(string resourceId)
     {
         var parts = resourceId.TrimStart('/').Split('/');
 
         return GetApplicationName(
-            new ApplicationCreateRequest(
-                SubscriptionID: Guid.Parse(parts[1]),
-                ResourceGroupName: parts[3]));
+            subscriptionID: Guid.Parse(parts[1]),
+            managedResourceGroupName: parts[3]);
     }
 
     private GraphServiceClient GetGraphServiceClient()
@@ -101,9 +100,9 @@ public class ApplicationService : IApplicationService
         }
     }
 
-    public async Task<ApplicationCreatedResponse> CreateApplication(ApplicationCreateRequest req)
+    public async Task<ApplicationCreatedResponse> CreateApplication(Guid subscriptionID, string managedResourceGroupName)
     {
-        var key = GetApplicationName(req);
+        var key = GetApplicationName(subscriptionID, managedResourceGroupName);
         try
         {
             GraphServiceClient _graphServiceClient = GetGraphServiceClient();
@@ -196,9 +195,8 @@ public class ApplicationService : IApplicationService
         if (string.IsNullOrEmpty(o.Subscription)) { throw new ArgumentNullException(paramName: nameof(o), message: $"Missing {nameof(SubscriptionRegistrationRequest)}.{nameof(SubscriptionRegistrationRequest.Subscription)}"); }
 
         var applicationCreatedResponse = await CreateApplication(
-            new ApplicationCreateRequest(
-                SubscriptionID: Guid.Parse(o.Subscription.Split('/').Last()),
-                ResourceGroupName: o.Resourcegroup));
+            subscriptionID: Guid.Parse(o.Subscription.Split('/').Last()),
+            managedResourceGroupName: o.Resourcegroup);
 
         return new SubscriptionRegistrationOkResponse(
             ClientId: applicationCreatedResponse.ClientId.ToString(),
