@@ -18,7 +18,7 @@ using System.Threading.Tasks;
 public interface IApplicationService
 {
     Task<ApplicationCreatedResponse> CreateApplication(ApplicationCreateRequest req);
-    Task<ApplicationDeletedResponse> DeleteApplication(string applicationId);
+    Task DeleteApplication(string applicationId);
     Task<SubscriptionRegistrationOkResponse> CreateServicePrincipal(SubscriptionRegistrationRequest o);
     Task<CreateServicePrincipalInKeyVaultResponse> CreateServicePrincipalInKeyVault(SubscriptionRegistrationRequest o);
 }
@@ -72,7 +72,7 @@ public class ApplicationService : IApplicationService
            }));
     }
 
-    public async Task<ApplicationDeletedResponse> DeleteApplication(string applicationId)
+    public async Task DeleteApplication(string applicationId)
     {
         try
         {
@@ -93,8 +93,6 @@ public class ApplicationService : IApplicationService
             await _graphServiceClient.Applications[applications.First().Id]
                 .Request()
                 .DeleteAsync();
-            
-            return new ApplicationDeletedResponse();
         }
         catch (Exception e)
         {
