@@ -13,9 +13,16 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
+public interface IApplicationService
+{
+    Task<ApplicationCreatedResponse> CreateApplication(ApplicationCreateRequest req);
+    Task<ApplicationDeletedResponse> DeleteApplication(string applicationId);
+    Task<SubscriptionRegistrationOkResponse> CreateServicePrincipal(SubscriptionRegistrationRequest o);
+    Task<CreateServicePrincipalInKeyVaultResponse> CreateServicePrincipalInKeyVault(SubscriptionRegistrationRequest o);
+}
+
 public class ApplicationService : IApplicationService
 {
-
     private readonly ILogger<ApplicationService> _logger;
     private readonly IOptions<ServicePrincipalCreatorSettings> _appSettings;
 
@@ -176,5 +183,27 @@ public class ApplicationService : IApplicationService
             _logger.LogError(e.Message, e);
             throw;
         }
+    }
+
+    public async Task<SubscriptionRegistrationOkResponse> CreateServicePrincipal(SubscriptionRegistrationRequest o)
+    {
+        if (string.IsNullOrEmpty(o.Resourcegroup)) { throw new ArgumentNullException(paramName: nameof(o), message: $"Missing {nameof(SubscriptionRegistrationRequest)}.{nameof(SubscriptionRegistrationRequest.ResourceGroupName)}"); }
+        if (string.IsNullOrEmpty(o.Subscription)) { throw new ArgumentNullException(paramName: nameof(o), message: $"Missing {nameof(SubscriptionRegistrationRequest)}.{nameof(SubscriptionRegistrationRequest.Subscription)}"); }
+
+        var applicationCreatedResponse = await CreateApplication(
+            new ApplicationCreateRequest(
+                SubscriptionID: Guid.Parse(o.Subscription.Split('/').Last()),
+                ResourceGroupName: o.Resourcegroup));
+
+        return new SubscriptionRegistrationOkResponse(
+            ClientId: applicationCreatedResponse.ClientId.ToString(),
+            ClientSecret: applicationCreatedResponse.ClientSecret,
+            TenantID: applicationCreatedResponse.TenantID);
+    }
+
+    public async Task<CreateServicePrincipalInKeyVaultResponse> CreateServicePrincipalInKeyVault(SubscriptionRegistrationRequest o) 
+    {
+        var sp = await CreateServicePrincipal(o);
+        return new CreateServicePrincipalInKeyVaultResponse(ClientId: sp.ClientId, SecretURL: "", TenantID: sp.TenantID);
     }
 }

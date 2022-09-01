@@ -11,10 +11,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Swashbuckle.AspNetCore.Annotations;
 using System;
-using System.Linq;
 using System.Threading.Tasks;
-
-internal class UnauthorizedException : Exception { }
 
 //[Authorize]
 [ApiController]
@@ -37,27 +34,11 @@ public class ServicePrincipalController : ControllerBase
         _applicationService = applicationService;
         _configuration = configuration;
     }
-
-    private async Task<SubscriptionRegistrationOkResponse> CreateServicePrincipal(SubscriptionRegistrationRequest o)
+    
+    private bool IsAuthorized(SubscriptionRegistrationRequest o)
     {
-        if (string.IsNullOrEmpty(o.Resourcegroup)) { throw new ArgumentNullException(paramName: nameof(o), message: $"Missing {nameof(SubscriptionRegistrationRequest)}.{nameof(SubscriptionRegistrationRequest.ResourceGroupName)}"); }
-        if (string.IsNullOrEmpty(o.Subscription)) { throw new ArgumentNullException(paramName: nameof(o), message: $"Missing {nameof(SubscriptionRegistrationRequest)}.{nameof(SubscriptionRegistrationRequest.Subscription)}"); }
-        
-        string? secretPassed = Request.Headers.Authorization.ToString();
-        if (string.IsNullOrEmpty(secretPassed)) secretPassed = o.Secret;
-        var keyVaultSecrect = _configuration["BootstrapSecret"];
-        if (string.IsNullOrEmpty(secretPassed) || secretPassed != keyVaultSecrect) { throw new UnauthorizedException();  }
-            
-
-        var applicationCreatedResponse = await _applicationService.CreateApplication(
-            new ApplicationCreateRequest(
-                SubscriptionID: Guid.Parse(o.Subscription.Split('/').Last()),
-                ResourceGroupName: o.Resourcegroup));
-
-        return new SubscriptionRegistrationOkResponse(
-            ClientId: applicationCreatedResponse.ClientId.ToString(),
-            ClientSecret: applicationCreatedResponse.ClientSecret,
-            TenantID: applicationCreatedResponse.TenantID);
+        string secretPassed = Request.Headers.Authorization.ToString() ?? o.Secret;
+        return !string.IsNullOrEmpty(secretPassed) && secretPassed == _configuration["BootstrapSecret"];
     }
 
     [SwaggerResponse(StatusCodes.Status200OK, "Service principal created", typeof(SubscriptionRegistrationOkResponse))]
@@ -68,11 +49,25 @@ public class ServicePrincipalController : ControllerBase
     {
         try
         {
-            return Ok(await CreateServicePrincipal(o));
+            if (!IsAuthorized(o)) { return Unauthorized(); }
+            return Ok(await _applicationService.CreateServicePrincipal(o));
         }
         catch (ArgumentNullException e) { return BadRequest(new SubscriptionRegistrationFailedResponse(Message: e.Message)); }
         catch (ArgumentException e) when (e.Message.Contains("Service principal already exist")) { return Conflict(new SubscriptionRegistrationFailedResponse(Message: e.Message)); }
-        catch (UnauthorizedException) { return Unauthorized(); }
+        catch (Exception e) { return BadRequest(new SubscriptionRegistrationFailedResponse(Message: e.Message)); }
+    }
+
+    [HttpPost]
+    [Route("/CreateServicePrincipalInKeyVault")]
+    public async Task<IActionResult> CreateServicePrincipalInKeyVault(SubscriptionRegistrationRequest o)
+    {
+        try
+        {
+            if (!IsAuthorized(o)) { return Unauthorized(); }
+            return Ok(await _applicationService.CreateServicePrincipalInKeyVault(o));
+        }
+        catch (ArgumentNullException e) { return BadRequest(new SubscriptionRegistrationFailedResponse(Message: e.Message)); }
+        catch (ArgumentException e) when (e.Message.Contains("Service principal already exist")) { return Conflict(new SubscriptionRegistrationFailedResponse(Message: e.Message)); }
         catch (Exception e) { return BadRequest(new SubscriptionRegistrationFailedResponse(Message: e.Message)); }
     }
 }
