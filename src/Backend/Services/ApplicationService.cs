@@ -15,8 +15,8 @@ using System.Threading.Tasks;
 
 public interface IApplicationService
 {
-    Task<CreateServicePrincipalInKeyVaultResponse> CreateServicePrincipalInKeyVault(SubscriptionRegistrationRequest o);
-    Task<SubscriptionRegistrationOkResponse> CreateServicePrincipal(SubscriptionRegistrationRequest o);
+    Task<CreateServicePrincipalInKeyVaultResponse> CreateServicePrincipalInKeyVault(SubscriptionRegistrationRequest subscriptionRegistrationRequest);
+    Task<SubscriptionRegistrationOkResponse> CreateServicePrincipal(SubscriptionRegistrationRequest subscriptionRegistrationRequest);
     Task DeleteApplication(string applicationId);
 }
 
@@ -25,17 +25,18 @@ public class ApplicationService : IApplicationService
     private readonly ILogger<ApplicationService> _logger;
     private readonly IOptions<ServicePrincipalCreatorSettings> _appSettings;
     private readonly SecretClient _keyVaultSecretClient;
+
     public ApplicationService(ILogger<ApplicationService> logger, IOptions<ServicePrincipalCreatorSettings> settingsOptions)
     {
         _logger = logger;
         _appSettings = settingsOptions;
+
         _keyVaultSecretClient = new SecretClient(
             vaultUri: new($"https://{_appSettings.Value.KeyVaultName}.vault.azure.net/"),
-            credential: new DefaultAzureCredential(new DefaultAzureCredentialOptions { ManagedIdentityClientId = _appSettings.Value.AzureADManagedIdentityClientId }));
+            credential: new DefaultAzureCredential(
+                new DefaultAzureCredentialOptions { 
+                    ManagedIdentityClientId = _appSettings.Value.AzureADManagedIdentityClientId }));
     }
-
-    private string GetApplicationName(string subscriptionID, string managedResourceGroupName) =>
-        $"{_appSettings.Value.GeneratedServicePrincipalPrefix}-{subscriptionID}-{managedResourceGroupName}";
 
     private string GetApplicationName(string resourceId)
     {
@@ -45,6 +46,9 @@ public class ApplicationService : IApplicationService
             subscriptionID: parts[1],
             managedResourceGroupName: parts[3]);
     }
+
+    private string GetApplicationName(string subscriptionID, string managedResourceGroupName) =>
+        $"{_appSettings.Value.GeneratedServicePrincipalPrefix}-{subscriptionID}-{managedResourceGroupName}";
 
     private GraphServiceClient GetGraphServiceClient()
     {
@@ -95,15 +99,15 @@ public class ApplicationService : IApplicationService
         }
     }
 
-    public async Task<SubscriptionRegistrationOkResponse> CreateServicePrincipal(SubscriptionRegistrationRequest o)
+    public async Task<SubscriptionRegistrationOkResponse> CreateServicePrincipal(SubscriptionRegistrationRequest subscriptionRegistrationRequest)
     {
-        if (string.IsNullOrEmpty(o.ManagedResourceGroupName)) { throw new ArgumentNullException(paramName: nameof(o), message: $"Missing {nameof(SubscriptionRegistrationRequest)}.{nameof(SubscriptionRegistrationRequest.ManagedResourceGroupName)}"); }
-        if (string.IsNullOrEmpty(o.SubscriptionID)) { throw new ArgumentNullException(paramName: nameof(o), message: $"Missing {nameof(SubscriptionRegistrationRequest)}.{nameof(SubscriptionRegistrationRequest.SubscriptionID)}"); }
+        subscriptionRegistrationRequest.EnsureValid();
 
-        var key = GetApplicationName(o.SubscriptionID, o.ManagedResourceGroupName);
+        var key = GetApplicationName(subscriptionRegistrationRequest.SubscriptionID, subscriptionRegistrationRequest.ManagedResourceGroupName);
         try
         {
             GraphServiceClient _graphServiceClient = GetGraphServiceClient();
+
             //Search for AAD app. Make sure SP does not already exist
             var apps = await _graphServiceClient.Applications
                 .Request(
@@ -172,7 +176,7 @@ public class ApplicationService : IApplicationService
                     if (i == retry)
                         _logger.LogError($"Failed to add service principal to group", e);
                     _logger.LogWarning($"Retry {i}", e);
-                    Thread.Sleep(200 * i);
+                    Thread.Sleep(200 * (i+1));
                 }
             }
 
@@ -190,17 +194,19 @@ public class ApplicationService : IApplicationService
     /// <summary>How long to keep secrets around. We expect the ARM template in the managed app to immediately fetch the secret, so one day might be a bit long.</summary>
     private static readonly TimeSpan SecretExpirationPeriod = TimeSpan.FromDays(1);
 
-    public async Task<CreateServicePrincipalInKeyVaultResponse> CreateServicePrincipalInKeyVault(SubscriptionRegistrationRequest o) 
-    {        
-        var sp = await CreateServicePrincipal(o);
-        var name = GetApplicationName(subscriptionID: o.SubscriptionID, managedResourceGroupName: o.ManagedResourceGroupName);
-        KeyVaultSecret secret = new(name: name, value: JsonConvert.SerializeObject(sp));
+    public async Task<CreateServicePrincipalInKeyVaultResponse> CreateServicePrincipalInKeyVault(SubscriptionRegistrationRequest subscriptionRegistrationRequest) 
+    {
+        var subscriptionRegistrationOkResponse = await CreateServicePrincipal(subscriptionRegistrationRequest);
+        var applicationName = GetApplicationName(
+            subscriptionID: subscriptionRegistrationRequest.SubscriptionID, 
+            managedResourceGroupName: subscriptionRegistrationRequest.ManagedResourceGroupName);
+
+        KeyVaultSecret secret = new(
+            name: applicationName, 
+            value: JsonConvert.SerializeObject(subscriptionRegistrationOkResponse));
         secret.Properties.ExpiresOn = DateTimeOffset.UtcNow.Add(SecretExpirationPeriod);
-        await _keyVaultSecretClient.SetSecretAsync(secret);
-                
-        return new CreateServicePrincipalInKeyVaultResponse(
-            ClientID: sp.ClientID, 
-            SecretURL: secret.Id.AbsoluteUri, 
-            TenantID: sp.TenantID);
+        var keyVaultResponse = await _keyVaultSecretClient.SetSecretAsync(secret);
+
+        return new CreateServicePrincipalInKeyVaultResponse(SecretURL: keyVaultResponse.Value.Id.AbsoluteUri);
     }
 }

@@ -2,6 +2,6 @@
 {
     public class AppSettings
     {
-        public string KeyVaultUri{ get; set; }
+        public string? KeyVaultUri{ get; set; }
     }
 }

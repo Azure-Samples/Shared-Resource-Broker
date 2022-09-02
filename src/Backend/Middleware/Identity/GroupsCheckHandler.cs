@@ -1,4 +1,4 @@
-﻿namespace Backend.Middelware.Identity;
+﻿namespace Backend.Middleware.Identity;
 
 using Microsoft.AspNetCore.Authorization;
 using System.Linq;

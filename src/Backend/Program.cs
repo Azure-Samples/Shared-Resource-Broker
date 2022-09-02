@@ -1,5 +1,5 @@
 using Azure.Identity;
-using Backend.Middelware.Monitor;
+using Backend.Middleware.Monitor;
 using Backend.Models;
 using Backend.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;

@@ -1,4 +1,4 @@
-﻿namespace Backend.Middelware.Monitor;
+﻿namespace Backend.Middleware.Monitor;
 
 using Microsoft.ApplicationInsights.DataContracts;
 using Microsoft.AspNetCore.Http;

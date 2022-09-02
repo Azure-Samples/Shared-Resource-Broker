@@ -37,15 +37,13 @@ namespace ManagedSolution.Pages
         {
             var client = new SecretClient(new Uri(_appsettings.Value.KeyVaultUri), new DefaultAzureCredential(), options);
 
-            KeyVaultSecret secret = client.GetSecret("clientCredentials");
+            KeyVaultSecret secret = await client.GetSecretAsync("clientCredentials", cancellationToken: ct);
             string secretValue = secret.Value;
 
             if (string.IsNullOrEmpty(secretValue))
             {
                 throw new Exception("Secret not found");
             }
-
-            await Task.FromResult("Ok");
         }
 
         public void OnGet() { }
