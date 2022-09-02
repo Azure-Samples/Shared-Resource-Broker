@@ -69,8 +69,8 @@ The setup flow is the entire orchestration, the central part of the sample. An A
 
 These a few central pieces to registering with the publisher:
 
-* (3,4) ARM deployments can [fetch secrets from a Key Vault](https://docs.microsoft.com/en-us/azure/azure-resource-manager/templates/key-vault-parameter), provided the subscription id, resource group and key vault name. Key Vault needs to be [enabled for ARM deployments](https://docs.microsoft.com/en-us/azure/azure-resource-manager/managed-applications/key-vault-access).
-* (5) Publisher API/Backend needs to be configured, ensuring that the created service principals shared with the managed application are added to a security group (or assigned privileges directly), which have the appropriate Azure role assignments (least priveledge).
+* (3,4) The ARM deployment in the managed application can [fetch secrets from a Key Vaulton the publisher side](https://docs.microsoft.com/en-us/azure/azure-resource-manager/templates/key-vault-parameter), provided the publisher's subscription id, resource group and key vault name. The Key Vault needs to be [enabled for ARM deployments](https://docs.microsoft.com/en-us/azure/azure-resource-manager/managed-applications/key-vault-access).
+* (5) Publisher API/Backend needs to be configured, ensuring that the created service principals shared with the managed application are added to a security group (or assigned privileges directly), which have the appropriate Azure role assignments (least privilege).
 * (7) Service principal credentials issued by the publisher are stored in the key vault of the managed app.
 * (8,9) See 'Usage' below. 
 

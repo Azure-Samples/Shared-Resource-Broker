@@ -1,42 +1,54 @@
 ﻿namespace Backend.Services;
 
 using Azure.Identity;
-using Backend.Models.Request;
-using Backend.Models.Response;
-using Backend.Models.Settings;
+using Azure.Security.KeyVault.Secrets;
+using Backend.Models;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.Graph;
+using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
+public interface IApplicationService
+{
+    Task<CreateServicePrincipalInKeyVaultResponse> CreateServicePrincipalInKeyVault(SubscriptionRegistrationRequest subscriptionRegistrationRequest);
+    Task<SubscriptionRegistrationOkResponse> CreateServicePrincipal(SubscriptionRegistrationRequest subscriptionRegistrationRequest);
+    Task DeleteApplication(string applicationId);
+}
+
 public class ApplicationService : IApplicationService
 {
-
     private readonly ILogger<ApplicationService> _logger;
     private readonly IOptions<ServicePrincipalCreatorSettings> _appSettings;
+    private readonly SecretClient _keyVaultSecretClient;
 
     public ApplicationService(ILogger<ApplicationService> logger, IOptions<ServicePrincipalCreatorSettings> settingsOptions)
     {
         _logger = logger;
         _appSettings = settingsOptions;
-    }
 
-    private string GetApplicationName(ApplicationCreateRequest req) =>
-        $"{_appSettings.Value.GeneratedServicePrincipalPrefix}-{req.SubscriptionID}-{req.ResourceGroupName}";
+        _keyVaultSecretClient = new SecretClient(
+            vaultUri: new($"https://{_appSettings.Value.KeyVaultName}.vault.azure.net/"),
+            credential: new DefaultAzureCredential(
+                new DefaultAzureCredentialOptions { 
+                    ManagedIdentityClientId = _appSettings.Value.AzureADManagedIdentityClientId }));
+    }
 
     private string GetApplicationName(string resourceId)
     {
         var parts = resourceId.TrimStart('/').Split('/');
 
         return GetApplicationName(
-            new ApplicationCreateRequest(
-                SubscriptionID: Guid.Parse(parts[1]),
-                ResourceGroupName: parts[3]));
+            subscriptionID: parts[1],
+            managedResourceGroupName: parts[3]);
     }
+
+    private string GetApplicationName(string subscriptionID, string managedResourceGroupName) =>
+        $"{_appSettings.Value.GeneratedServicePrincipalPrefix}-{subscriptionID}-{managedResourceGroupName}";
 
     private GraphServiceClient GetGraphServiceClient()
     {
@@ -58,7 +70,7 @@ public class ApplicationService : IApplicationService
            }));
     }
 
-    public async Task<ApplicationDeletedResponse> DeleteApplication(string applicationId)
+    public async Task DeleteApplication(string applicationId)
     {
         try
         {
@@ -79,8 +91,6 @@ public class ApplicationService : IApplicationService
             await _graphServiceClient.Applications[applications.First().Id]
                 .Request()
                 .DeleteAsync();
-            
-            return new ApplicationDeletedResponse();
         }
         catch (Exception e)
         {
@@ -89,12 +99,15 @@ public class ApplicationService : IApplicationService
         }
     }
 
-    public async Task<ApplicationCreatedResponse> CreateApplication(ApplicationCreateRequest req)
+    public async Task<SubscriptionRegistrationOkResponse> CreateServicePrincipal(SubscriptionRegistrationRequest subscriptionRegistrationRequest)
     {
-        var key = GetApplicationName(req);
+        subscriptionRegistrationRequest.EnsureValid();
+
+        var key = GetApplicationName(subscriptionRegistrationRequest.SubscriptionID, subscriptionRegistrationRequest.ManagedResourceGroupName);
         try
         {
             GraphServiceClient _graphServiceClient = GetGraphServiceClient();
+
             //Search for AAD app. Make sure SP does not already exist
             var apps = await _graphServiceClient.Applications
                 .Request(
@@ -163,18 +176,37 @@ public class ApplicationService : IApplicationService
                     if (i == retry)
                         _logger.LogError($"Failed to add service principal to group", e);
                     _logger.LogWarning($"Retry {i}", e);
-                    Thread.Sleep(200 * i);
+                    Thread.Sleep(200 * (i+1));
                 }
             }
 
             _logger.LogDebug("Setup completed for app:" + key);
-            return new ApplicationCreatedResponse(DisplayName: key, ClientSecret: pwd.SecretText, ClientId: Guid.Parse(app.AppId), TenantID: app.PublisherDomain);
-
+            
+            return new SubscriptionRegistrationOkResponse(ClientSecret: pwd.SecretText, ClientID: app.AppId, TenantID: app.PublisherDomain);
         }
         catch (Exception e)
         {
             _logger.LogError(e.Message, e);
             throw;
         }
+    }
+
+    /// <summary>How long to keep secrets around. We expect the ARM template in the managed app to immediately fetch the secret, so one day might be a bit long.</summary>
+    private static readonly TimeSpan SecretExpirationPeriod = TimeSpan.FromDays(1);
+
+    public async Task<CreateServicePrincipalInKeyVaultResponse> CreateServicePrincipalInKeyVault(SubscriptionRegistrationRequest subscriptionRegistrationRequest) 
+    {
+        var subscriptionRegistrationOkResponse = await CreateServicePrincipal(subscriptionRegistrationRequest);
+        var applicationName = GetApplicationName(
+            subscriptionID: subscriptionRegistrationRequest.SubscriptionID, 
+            managedResourceGroupName: subscriptionRegistrationRequest.ManagedResourceGroupName);
+
+        KeyVaultSecret secret = new(
+            name: applicationName, 
+            value: JsonConvert.SerializeObject(subscriptionRegistrationOkResponse));
+        secret.Properties.ExpiresOn = DateTimeOffset.UtcNow.Add(SecretExpirationPeriod);
+        var keyVaultResponse = await _keyVaultSecretClient.SetSecretAsync(secret);
+
+        return new CreateServicePrincipalInKeyVaultResponse(SecretURL: keyVaultResponse.Value.Id.AbsoluteUri);
     }
 }

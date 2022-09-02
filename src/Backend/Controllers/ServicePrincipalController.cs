@@ -1,8 +1,6 @@
 namespace Backend.Controllers;
 
-using Backend.Models.Request;
-using Backend.Models.Response;
-using Backend.Models.Settings;
+using Backend.Models;
 using Backend.Services;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -11,7 +9,6 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Swashbuckle.AspNetCore.Annotations;
 using System;
-using System.Linq;
 using System.Threading.Tasks;
 
 //[Authorize]
@@ -35,6 +32,12 @@ public class ServicePrincipalController : ControllerBase
         _applicationService = applicationService;
         _configuration = configuration;
     }
+    
+    private bool IsAuthorized(SubscriptionRegistrationRequest o)
+    {
+        string secretPassed = Request.Headers.Authorization.ToString();
+        return !string.IsNullOrEmpty(secretPassed) && secretPassed == _configuration["BootstrapSecret"];
+    }
 
     [SwaggerResponse(StatusCodes.Status200OK, "Service principal created", typeof(SubscriptionRegistrationOkResponse))]
     [SwaggerResponse(StatusCodes.Status409Conflict, "Service principal already exist", typeof(SubscriptionRegistrationFailedResponse))]
@@ -44,34 +47,25 @@ public class ServicePrincipalController : ControllerBase
     {
         try
         {
-            if (string.IsNullOrEmpty(o.Resourcegroup))
-                return Ok(new SubscriptionRegistrationFailedResponse($"No {nameof(o.ResourceGroupName)} specified"));
-            if (string.IsNullOrEmpty(o.Subscription))
-                return Ok(new SubscriptionRegistrationFailedResponse($"No {nameof(o.SubscriptionID)} specified"));
+            if (!IsAuthorized(o)) { return Unauthorized(); }
+            return Ok(await _applicationService.CreateServicePrincipal(o));
+        }
+        catch (ArgumentNullException e) { return BadRequest(new SubscriptionRegistrationFailedResponse(Message: e.Message)); }
+        catch (ArgumentException e) when (e.Message.Contains("Service principal already exist")) { return Conflict(new SubscriptionRegistrationFailedResponse(Message: e.Message)); }
+        catch (Exception e) { return BadRequest(new SubscriptionRegistrationFailedResponse(Message: e.Message)); }
+    }
 
-            string? secretPassed = Request.Headers.Authorization.ToString();
-            if (string.IsNullOrEmpty(secretPassed)) secretPassed = o.Secret;
-            var keyVaultSecrect = _configuration["BootstrapSecret"];
-            if (string.IsNullOrEmpty(secretPassed) || secretPassed != keyVaultSecrect)
-                return Unauthorized();
-           
-            var applicationCreatedResponse = await _applicationService.CreateApplication(
-                new ApplicationCreateRequest(
-                    SubscriptionID: Guid.Parse(o.Subscription.Split('/').Last()), 
-                    ResourceGroupName: o.Resourcegroup));
-
-            return Ok(new SubscriptionRegistrationOkResponse(
-                ClientId: applicationCreatedResponse.ClientId.ToString(), 
-                ClientSecret: applicationCreatedResponse.ClientSecret, 
-                TenantID: applicationCreatedResponse.TenantID));
-        }
-        catch (ArgumentException e) when (e.Message.Contains("Service principal already exist"))
+    [HttpPost]
+    [Route("/CreateServicePrincipalInKeyVault")]
+    public async Task<IActionResult> CreateServicePrincipalInKeyVault(SubscriptionRegistrationRequest o)
+    {
+        try
         {
-            return Conflict(new SubscriptionRegistrationFailedResponse(Message: e.Message));
+            if (!IsAuthorized(o)) { return Unauthorized(); }
+            return Ok(await _applicationService.CreateServicePrincipalInKeyVault(o));
         }
-        catch (Exception e)
-        {
-            return BadRequest(new SubscriptionRegistrationFailedResponse(Message: e.Message));
-        }
+        catch (ArgumentNullException e) { return BadRequest(new SubscriptionRegistrationFailedResponse(Message: e.Message)); }
+        catch (ArgumentException e) when (e.Message.Contains("Service principal already exist")) { return Conflict(new SubscriptionRegistrationFailedResponse(Message: e.Message)); }
+        catch (Exception e) { return BadRequest(new SubscriptionRegistrationFailedResponse(Message: e.Message)); }
     }
 }

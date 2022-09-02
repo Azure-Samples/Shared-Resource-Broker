@@ -63,8 +63,8 @@ simulatedSubscriptionId="11111111-1111-1111-1111-111111111111"
 simulatedManagedResourceGroup="mtg-1124"
 
 json="$( echo "{}" \
-  | jq --arg x "${simulatedSubscriptionId}"       '.SubscriptionID=$x' \
-  | jq --arg x "${simulatedManagedResourceGroup}" '.ResourceGroupName=$x' 
+  | jq --arg x "${simulatedSubscriptionId}"       '.subscriptionID=$x' \
+  | jq --arg x "${simulatedManagedResourceGroup}" '.managedResourceGroupName=$x' \
 )"
 
 response="$( curl \
