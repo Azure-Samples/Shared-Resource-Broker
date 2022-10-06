@@ -1,8 +1,8 @@
 ﻿namespace Backend.Models;
 
-public record SubscriptionRegistrationRequest(string SubscriptionID, string ManagedResourceGroupName);
+public record SubscriptionRegistrationRequest(string ManagedBy);
 
-public record CreateServicePrincipalInKeyVaultResponse(string SecretURL); 
+public record CreateServicePrincipalInKeyVaultResponse(string SecretURL, string VaultName, string SecretName, string SecretVersion); 
 
 public record SubscriptionRegistrationOkResponse(string ClientID, string ClientSecret, string TenantID);
 
@@ -12,17 +12,11 @@ internal static class DTOValidation
 {
     public static void EnsureValid(this SubscriptionRegistrationRequest subscriptionRegistrationRequest)
     {
-        if (string.IsNullOrEmpty(subscriptionRegistrationRequest.ManagedResourceGroupName))
+        if (string.IsNullOrEmpty(subscriptionRegistrationRequest.ManagedBy))
         {
             throw new ArgumentNullException(
                 paramName: nameof(subscriptionRegistrationRequest), 
-                message: $"Missing {nameof(SubscriptionRegistrationRequest)}.{nameof(SubscriptionRegistrationRequest.ManagedResourceGroupName)}");
-        }
-        if (string.IsNullOrEmpty(subscriptionRegistrationRequest.SubscriptionID))
-        {
-            throw new ArgumentNullException(
-                paramName: nameof(subscriptionRegistrationRequest), 
-                message: $"Missing {nameof(SubscriptionRegistrationRequest)}.{nameof(SubscriptionRegistrationRequest.SubscriptionID)}");
+                message: $"Missing {nameof(SubscriptionRegistrationRequest)}.{nameof(SubscriptionRegistrationRequest.ManagedBy)}");
         }
     }
 }

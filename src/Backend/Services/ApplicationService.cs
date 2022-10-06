@@ -7,9 +7,12 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.Graph;
 using Newtonsoft.Json;
+using SimpleBase;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -38,17 +41,18 @@ public class ApplicationService : IApplicationService
                     ManagedIdentityClientId = _appSettings.Value.AzureADManagedIdentityClientId }));
     }
 
-    private string GetApplicationName(string resourceId)
+    private string GetApplicationName(string managedBy)
     {
-        var parts = resourceId.TrimStart('/').Split('/');
+        // managedBy = "/subscriptions/.../resourceGroups/.../providers/microsoft.solutions/applications/..."
+        //var parts = managedBy.TrimStart('/').Split('/');
+        //var (subscriptionId, managedAppResourceGroup, managedAppName) = (parts[1], parts[3], parts[7]);
+        //return $"{_appSettings.Value.GeneratedServicePrincipalPrefix}-{subscriptionId}-{managedAppResourceGroup}-{managedAppName}";
 
-        return GetApplicationName(
-            subscriptionID: parts[1],
-            managedResourceGroupName: parts[3]);
+        using var hashAlgo = MD5.Create();
+        var hash = hashAlgo.ComputeHash(Encoding.UTF8.GetBytes(managedBy));
+        var hashBase32 = Base32.Crockford.Encode(hash);
+        return $"{_appSettings.Value.GeneratedServicePrincipalPrefix}-{hashBase32}"; // The result must have a length of at most 93
     }
-
-    private string GetApplicationName(string subscriptionID, string managedResourceGroupName) =>
-        $"{_appSettings.Value.GeneratedServicePrincipalPrefix}-{subscriptionID}-{managedResourceGroupName}";
 
     private GraphServiceClient GetGraphServiceClient()
     {
@@ -65,12 +69,12 @@ public class ApplicationService : IApplicationService
         return new(
            new DelegateAuthenticationProvider((requestMessage) =>
            {
-               requestMessage.Headers.Authorization = new ("Bearer", accessToken);
+               requestMessage.Headers.Authorization = new(scheme: "Bearer", parameter: accessToken);
                return Task.CompletedTask;
            }));
     }
 
-    public async Task DeleteApplication(string applicationId)
+    public async Task DeleteApplication(string managedBy)
     {
         try
         {
@@ -79,18 +83,19 @@ public class ApplicationService : IApplicationService
                 new("$count", "true")
             };
 
-            var app = GetApplicationName(applicationId);
+            var appName = GetApplicationName(managedBy);
             var _graphServiceClient = GetGraphServiceClient();
             var applications = await _graphServiceClient.Applications
                 .Request(queryOptions)
-                .Filter($"startsWith(displayName,'{app}')")
+                .Filter($"startsWith(displayName,'{appName}')")
                 .Header("ConsistencyLevel", "eventual")
                 .GetAsync();
-
-            _logger.LogInformation($"Deleting app: {applications.First().DisplayName}");
-            await _graphServiceClient.Applications[applications.First().Id]
-                .Request()
-                .DeleteAsync();
+            if (applications.Any())
+            {
+                var application = applications.First();
+                _logger.LogInformation($"Deleting app: {application.DisplayName}");
+                await _graphServiceClient.Applications[application.Id].Request().DeleteAsync();
+            }
         }
         catch (Exception e)
         {
@@ -103,7 +108,7 @@ public class ApplicationService : IApplicationService
     {
         subscriptionRegistrationRequest.EnsureValid();
 
-        var key = GetApplicationName(subscriptionRegistrationRequest.SubscriptionID, subscriptionRegistrationRequest.ManagedResourceGroupName);
+        var appName = GetApplicationName(subscriptionRegistrationRequest.ManagedBy);
         try
         {
             GraphServiceClient _graphServiceClient = GetGraphServiceClient();
@@ -114,7 +119,7 @@ public class ApplicationService : IApplicationService
                     new List<QueryOption>()
                     {
                         new("$count", "true"),
-                        new("$filter", "DisplayName eq " +"'"+ key+ "'")
+                        new("$filter", $"DisplayName eq '{appName}'")
                     })
                 .Header("ConsistencyLevel", "eventual")
                 .GetAsync();
@@ -130,12 +135,13 @@ public class ApplicationService : IApplicationService
                 .Applications
                 .Request()
                 .AddAsync(new Application { 
-                    DisplayName = key, SignInAudience = "AzureADMyOrg"
-                    //Notes = $"This service principal is used by customer subscription {req.SubscriptionID} / managed resource group {req.ResourceGroupName}",
-                    //Description = $"/subscriptions/{req.SubscriptionID}/resourceGroups/{req.ResourceGroupName}",
+                    DisplayName = appName, 
+                    SignInAudience = "AzureADMyOrg",
+                    Description = $"ManagedBy: {subscriptionRegistrationRequest.ManagedBy}", 
+                    Notes = $"ManagedBy: {subscriptionRegistrationRequest.ManagedBy}",
                 });
 
-            _logger.LogTrace("AAD app created:" + app.DisplayName);
+            _logger.LogTrace($"AAD app created: {app.DisplayName}");
 
             //Create Secret
             var pwd = await _graphServiceClient.Applications[app.Id]
@@ -147,13 +153,13 @@ public class ApplicationService : IApplicationService
                     })
                 .Request()
                 .PostAsync();
-            _logger.LogTrace("AAD app password  created:" + app.DisplayName);
+            _logger.LogTrace($"AAD app password created: {app.DisplayName}");
 
             //Create Service principal for app
             var spr = await _graphServiceClient.ServicePrincipals
                 .Request()
                 .AddAsync(new ServicePrincipal { AppId = app.AppId });
-            _logger.LogTrace("Service principal created:" + spr.Id);
+            _logger.LogTrace($"Service principal created: {spr.Id}");
            
             int retry = 10;
             for (int i = 0; i < retry; i++)
@@ -164,7 +170,7 @@ public class ApplicationService : IApplicationService
                     await _graphServiceClient.Groups[_appSettings.Value.SharedResourcesGroup.ToString()].Members.References
                          .Request()
                          .AddAsync(new DirectoryObject { Id = spr.Id });
-                    _logger.LogTrace("Service principal added to security group:" + spr.Id);
+                    _logger.LogTrace($"Service principal added to security group: {spr.Id}");
                     break;
                 }
                 catch (ServiceException e) when (e.StatusCode == System.Net.HttpStatusCode.Forbidden)
@@ -180,7 +186,7 @@ public class ApplicationService : IApplicationService
                 }
             }
 
-            _logger.LogDebug("Setup completed for app:" + key);
+            _logger.LogDebug($"Setup completed for app {appName}");
             
             return new SubscriptionRegistrationOkResponse(ClientSecret: pwd.SecretText, ClientID: app.AppId, TenantID: app.PublisherDomain);
         }
@@ -197,16 +203,19 @@ public class ApplicationService : IApplicationService
     public async Task<CreateServicePrincipalInKeyVaultResponse> CreateServicePrincipalInKeyVault(SubscriptionRegistrationRequest subscriptionRegistrationRequest) 
     {
         var subscriptionRegistrationOkResponse = await CreateServicePrincipal(subscriptionRegistrationRequest);
-        var applicationName = GetApplicationName(
-            subscriptionID: subscriptionRegistrationRequest.SubscriptionID, 
-            managedResourceGroupName: subscriptionRegistrationRequest.ManagedResourceGroupName);
+        var applicationName = GetApplicationName(subscriptionRegistrationRequest.ManagedBy);
 
         KeyVaultSecret secret = new(
             name: applicationName, 
             value: JsonConvert.SerializeObject(subscriptionRegistrationOkResponse));
         secret.Properties.ExpiresOn = DateTimeOffset.UtcNow.Add(SecretExpirationPeriod);
         var keyVaultResponse = await _keyVaultSecretClient.SetSecretAsync(secret);
+        var secretUrl = keyVaultResponse.Value.Id.AbsoluteUri;
 
-        return new CreateServicePrincipalInKeyVaultResponse(SecretURL: keyVaultResponse.Value.Id.AbsoluteUri);
+        return new CreateServicePrincipalInKeyVaultResponse(
+            SecretURL: secretUrl,
+            VaultName: _appSettings.Value.KeyVaultName,
+            SecretName: applicationName, 
+            SecretVersion: secretUrl.Split("/").Last());
     }
 }
