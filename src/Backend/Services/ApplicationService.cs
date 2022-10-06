@@ -2,7 +2,6 @@
 
 using Azure.Identity;
 using Azure.Security.KeyVault.Secrets;
-using Backend.Models;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.Graph;
@@ -15,12 +14,14 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Models;
 
 public interface IApplicationService
 {
     Task<CreateServicePrincipalInKeyVaultResponse> CreateServicePrincipalInKeyVault(SubscriptionRegistrationRequest subscriptionRegistrationRequest);
     Task<SubscriptionRegistrationOkResponse> CreateServicePrincipal(SubscriptionRegistrationRequest subscriptionRegistrationRequest);
-    Task DeleteApplication(string applicationId);
+    Task DeleteApplication(string managedBy);
+    Task DeleteServicePrincipalSecret(string managedBy);
 }
 
 public class ApplicationService : IApplicationService
@@ -96,6 +97,8 @@ public class ApplicationService : IApplicationService
                 _logger.LogInformation($"Deleting app: {application.DisplayName}");
                 await _graphServiceClient.Applications[application.Id].Request().DeleteAsync();
             }
+
+            await DeleteServicePrincipalSecret(managedBy);
         }
         catch (Exception e)
         {
@@ -158,7 +161,9 @@ public class ApplicationService : IApplicationService
             //Create Service principal for app
             var spr = await _graphServiceClient.ServicePrincipals
                 .Request()
-                .AddAsync(new ServicePrincipal { AppId = app.AppId });
+                .AddAsync(new ServicePrincipal { 
+                    AppId = app.AppId, 
+                });
             _logger.LogTrace($"Service principal created: {spr.Id}");
            
             int retry = 10;
@@ -209,6 +214,7 @@ public class ApplicationService : IApplicationService
             name: applicationName, 
             value: JsonConvert.SerializeObject(subscriptionRegistrationOkResponse));
         secret.Properties.ExpiresOn = DateTimeOffset.UtcNow.Add(SecretExpirationPeriod);
+        secret.Properties.Tags.Add("ManagedBy", subscriptionRegistrationRequest.ManagedBy);
         var keyVaultResponse = await _keyVaultSecretClient.SetSecretAsync(secret);
         var secretUrl = keyVaultResponse.Value.Id.AbsoluteUri;
 
@@ -217,5 +223,14 @@ public class ApplicationService : IApplicationService
             VaultName: _appSettings.Value.KeyVaultName,
             SecretName: applicationName, 
             SecretVersion: secretUrl.Split("/").Last());
+    }
+
+    public async Task DeleteServicePrincipalSecret(string managedBy)
+    {
+        if (!string.IsNullOrEmpty(managedBy) && managedBy.StartsWith("/subscriptions/")) {
+            var applicationName = GetApplicationName(managedBy);
+            var r = await _keyVaultSecretClient.StartDeleteSecretAsync(name: applicationName);
+            _ = await r.WaitForCompletionAsync();
+        }
     }
 }
