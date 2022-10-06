@@ -1,16 +1,12 @@
 ﻿namespace Backend.Controllers;
 
-using Backend.Models.NotificationSchemas;
+using Backend.Models;
 using Backend.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
 using System;
 using System.IO;
-using AzureMarketplaceSchema = Backend.Models.NotificationSchema.AzureMarketplaceApplication;
-using ServiceCatalogSchema = Backend.Models.NotificationSchema.ServiceCatalogApplication;
 
 [ApiExplorerSettings(IgnoreApi = true)]
 [Route("api/[controller]")]
@@ -45,51 +41,23 @@ public class ResourceController : ControllerBase
         try
         {
             string json = new StreamReader(this.Request.BodyReader.AsStream()).ReadToEnd();
-            dynamic clientData = JObject.Parse(json);
+            var data = json.DeserializeJson<CommonNotificationInformation>();
 
-            NotificationSource notificationSource;
+            _logger.LogDebug(json);
 
-            //Determine who is calling. Azure marketplace or Managed application
-            if ((clientData.billingDetails is not null) || (clientData.plan.publisher is not null))
+            switch (data.ProvisioningState)
             {
-                notificationSource = NotificationSource.MarketPlace;
-            }
-            else if (clientData.applicationDefinitionId is not null)
-            {
-                notificationSource = NotificationSource.ManagedApp;
-            }
-            else
-            {
-                return BadRequest("Unrecognized payload");
-            }
-
-            string provisionState = (string)clientData.provisioningState;
-            switch (provisionState, notificationSource)
-            {
-                case (ProvisioningState.Deleted, NotificationSource.ManagedApp):
-                    var req = JsonConvert.DeserializeObject<ServiceCatalogSchema.Succeeded>(json);
-                    _applicationService.DeleteApplication(req.applicationId);
+                case (ProvisioningState.Succeeded):
+                    _logger.LogDebug("Succeeded ");
+                    break;
+                case (ProvisioningState.Deleting):
+                    _logger.LogDebug("Deleting");
+                    break;
+                case (ProvisioningState.Deleted):
+                    _applicationService.DeleteApplication(data.ApplicationId);
                     _logger.LogDebug("Deleted");
-                    break;
-                case (ProvisioningState.Succeeded, NotificationSource.ManagedApp):
-                    _logger.LogDebug("Succeeded");
-                    break;
-                case (ProvisioningState.Deleting, NotificationSource.ManagedApp):
-                    _logger.LogDebug("Succeeded");
-                    break;
-                case (ProvisioningState.Deleted, NotificationSource.MarketPlace):
-                    var request = JsonConvert.DeserializeObject<AzureMarketplaceSchema.Succeeded>(json);
-                    _applicationService.DeleteApplication(request.applicationId);
-                    _logger.LogDebug("Deleted");
-                    break;
-                case (ProvisioningState.Succeeded, NotificationSource.MarketPlace):
-                    _logger.LogDebug("Succeeded");
-                    break;
-                case (ProvisioningState.Deleting, NotificationSource.MarketPlace):
-                    _logger.LogDebug("Succeeded");
                     break;
                 default:
-                    _logger.LogDebug(provisionState);
                     break;
             }
         }

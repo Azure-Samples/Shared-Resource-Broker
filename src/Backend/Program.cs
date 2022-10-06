@@ -21,6 +21,7 @@ builder.Services.AddSwaggerGen(options =>
     options.OperationFilter<SecurityRequirementsOperationFilter>();
 });
 builder.Services.AddApplicationInsightsTelemetry(builder.Configuration);
+//builder.Services.AddLogging(c => c.AddApplicationInsights());
 builder.Services.AddTransient<RequestIdentityLoggingMiddleware>();
 builder.Services.AddScoped<IApplicationService, ApplicationService>();
 
