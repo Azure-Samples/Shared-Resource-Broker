@@ -3,8 +3,6 @@
     <TargetFramework>net6.0</TargetFramework>
     <!-- <Nullable>enable</Nullable> -->
     <ImplicitUsings>true</ImplicitUsings>
-    <UserSecretsId>aspnet-Backend-71F1BBFE-7AAA-42F6-B8B4-3630007DD01A</UserSecretsId>
-    <ApplicationInsightsResourceId>/subscriptions/8b67eac7-bf4f-42d7-9342-4da1ff179460/resourceGroups/SharedResourceBackend02/providers/microsoft.insights/components/SRBwebapp02</ApplicationInsightsResourceId>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Azure.Extensions.AspNetCore.Configuration.Secrets" Version="1.2.2" />

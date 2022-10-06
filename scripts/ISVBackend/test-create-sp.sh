@@ -59,13 +59,9 @@ bootstrapSecret=$(az keyvault secret show \
    --vault-name "${vaultName}" \
    | jq -r '.value' )
 
-simulatedSubscriptionId="11111111-1111-1111-1111-111111111111"
-simulatedManagedResourceGroup="mtg-1124"
+managedBy="/subscriptions/724467b5-bee4-484b-bf13-d6a5505d2b51/resourceGroups/managed-app-resourcegroup/providers/Microsoft.Solutions/applications/chga123"
 
-json="$( echo "{}" \
-  | jq --arg x "${simulatedSubscriptionId}"       '.subscriptionID=$x' \
-  | jq --arg x "${simulatedManagedResourceGroup}" '.managedResourceGroupName=$x' \
-)"
+json="$( echo "{}" | jq --arg x "${managedBy}" '.managedBy=$x' )"
 
 response="$( curl \
   --silent \
