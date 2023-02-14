@@ -215,14 +215,9 @@ public class ApplicationService : IApplicationService
             value: JsonConvert.SerializeObject(subscriptionRegistrationOkResponse));
         secret.Properties.ExpiresOn = DateTimeOffset.UtcNow.Add(SecretExpirationPeriod);
         secret.Properties.Tags.Add("ManagedBy", subscriptionRegistrationRequest.ManagedBy);
-        var keyVaultResponse = await _keyVaultSecretClient.SetSecretAsync(secret);
-        var secretUrl = keyVaultResponse.Value.Id.AbsoluteUri;
+        _ = await _keyVaultSecretClient.SetSecretAsync(secret);
 
-        return new CreateServicePrincipalInKeyVaultResponse(
-            SecretURL: secretUrl,
-            VaultName: _appSettings.Value.KeyVaultName,
-            SecretName: applicationName, 
-            SecretVersion: secretUrl.Split("/").Last());
+        return new CreateServicePrincipalInKeyVaultResponse(SecretName: applicationName);
     }
 
     public async Task DeleteServicePrincipalSecret(string managedBy)

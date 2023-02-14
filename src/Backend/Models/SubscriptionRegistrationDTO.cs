@@ -2,7 +2,7 @@
 
 public record SubscriptionRegistrationRequest(string ManagedBy);
 
-public record CreateServicePrincipalInKeyVaultResponse(string SecretURL, string VaultName, string SecretName, string SecretVersion); 
+public record CreateServicePrincipalInKeyVaultResponse(string SecretName); 
 
 public record SubscriptionRegistrationOkResponse(string ClientID, string ClientSecret, string TenantID);
 
