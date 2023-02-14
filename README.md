@@ -63,16 +63,51 @@ For setup and installation, check the [scripts and guide](docs/Installation.md).
 
 ## Main application flow, a managed application that registers with the publisher
 
-The setup flow is the entire orchestration, the central part of the sample. An Azure Marketplace deployment calls the publisher to setup the trust relationship. A service principle is created and stored in the key vault of the managed application deployment.
+The setup flow is the entire orchestration, the central part of the sample. An Azure Marketplace deployment calls the publisher to setup the trust relationship. A service principal is created and stored in the key vault of the managed application deployment.
 
-![](./docs/img/main.png)
+```mermaid
+sequenceDiagram
+    participant Marketplace
+    participant ARM
+    participant Managed App
+    participant ManagedApp KeyVault
+    participant DeploymentScript
+    participant Publisher REST API
+    participant Publisher KeyVault
+    participant Publisher AAD Tenant
+    Publisher REST API ->> Publisher KeyVault: 0) Fetch bootstrap secret
+    Marketplace->>ARM: 1) Install application
+    activate ARM
+    ARM--)Managed App: 2) Deploy
+    ARM->>Publisher KeyVault: 3) Get 'bootstrap' secret
+    ARM->>DeploymentScript: 4) Trigger service principal creation
+    DeploymentScript->>Publisher REST API: 5) Create Service Principal (authenticate using 'bootstrap' secret)
+    activate Publisher REST API
+    Publisher REST API->>Publisher AAD Tenant: 6) Create SP and add to group
+    Publisher REST API->> Publisher KeyVault: 7) Store SP Credential
+    Publisher REST API--) DeploymentScript: 8) Return secret name
+    deactivate Publisher REST API
+    DeploymentScript--) ARM: 9) Return secret name
+    ARM->>Publisher KeyVault: 10) Fetch service Principal Credential
+    ARM->>ManagedApp KeyVault: 11) Store Service Principal Credential
+    ARM -> Marketplace: 12) Done
+    deactivate ARM
+```
 
 These a few central pieces to registering with the publisher:
 
-* (3,4) The ARM deployment in the managed application can [fetch secrets from a Key Vaulton the publisher side](https://docs.microsoft.com/en-us/azure/azure-resource-manager/templates/key-vault-parameter), provided the publisher's subscription id, resource group and key vault name. The Key Vault needs to be [enabled for ARM deployments](https://docs.microsoft.com/en-us/azure/azure-resource-manager/managed-applications/key-vault-access).
-* (5) Publisher API/Backend needs to be configured, ensuring that the created service principals shared with the managed application are added to a security group (or assigned privileges directly), which have the appropriate Azure role assignments (least privilege).
-* (7) Service principal credentials issued by the publisher are stored in the key vault of the managed app.
-* (8,9) See 'Usage' below. 
+1. A customer purchases the managed application through Azure Marketplace
+2. The Azure Resource Manager (ARM) triggers the managed app deployment in the customer's subscription. 
+3. The ARM deployment in the managed application [fetches a 'bootstrap' secret from the publisher's Key Vault](https://docs.microsoft.com/en-us/azure/azure-resource-manager/templates/key-vault-parameter). The publisher's Key Vault needs to be [enabled for ARM deployments](https://docs.microsoft.com/en-us/azure/azure-resource-manager/managed-applications/key-vault-access). Storing the bootstrap secret in the publisher's KeyVault avoid having a secret in the managed app's ZIP file in marketplace.
+4. The ARM deployment uses a deploymentScript to run a bash/Powershell commandline, and supplies the bootstrap secret.
+5. The deploymentScript call the REST API and supplies information about the managed app (like customer subscription ID, managed app ID, etc.).
+6. The REST API creates a new service principal in the publisher's AAD tenant, and adds the SP to an existing security group.
+7. The REST API stores the service principal credential in the publisher's KeyVault
+8. The response to the deploymentScript just contains the name of the secret...
+9. ... which is returned to the ARM deployment.
+10. The ARM deployment then fetches the actual service principal credential **dedicated for this managed app** from the KeyVault...
+11. ... and stores it in a KeyVault in the managed resource group
+12. After the deployment, compute resources in the managed app can access the service principal cred from KeyVault.
 
 ### Usage
 
