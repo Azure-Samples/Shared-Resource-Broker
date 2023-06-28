@@ -5,8 +5,6 @@ languages:
 - bash
 - azurecli
 - bicep
-- azurecli
-
 products:
 - azure
 - azure-active-directory
@@ -17,12 +15,9 @@ products:
 - azure-managed-applications
 - azure-marketplace
 - aspnet-core
-- dotnet-core
 - microsoft-graph-azure-ad-api
 - microsoft-graph-groups-api
 - microsoft-graph-applications-api
-
-
 name: Shared Resource Broker
 description: "This sample shows how Azure marketplace deployments can connect to publisher services, thereby leveraging shared services for marketplace applications. During marketplace installation (ARM deployment), a service principal is created on the publisher tenant. The service principal is added to an AAD group, which has been granted permissions (RBAC) to specific Azure services. Once service principal is created, the marketplace deployment process (ARM) stores the credentials in a key vault in the managed resource group. The managed application can then leverage credentials stored in the key vault to connect to the shared resources on the publisher tenant."
 ---
